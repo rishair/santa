@@ -16,7 +16,7 @@ export class NaughtyOrNiceAgent {
     >,
     private readonly userProfileRepository: Repository<string, UserV2>
   ) {
-    this.judgeDetails = new YamlReader("src/prompts/judge.yaml");
+    this.judgeDetails = new YamlReader("src/prompts/naughty_or_nice.yaml");
   }
 
   public async analyzeProfile(username: string): Promise<string> {
@@ -34,15 +34,10 @@ export class NaughtyOrNiceAgent {
 
     const userString = this.constructUserString(userInfo!);
     const tweetsString = this.constructTweetsString(tweets!);
-    const messages: CoreMessage[] = [
-      {
-        role: "system",
-        content: this.judgeDetails.get("prompt", {
-          user_profile: userString,
-          user_tweets: tweetsString,
-        }),
-      },
-    ];
+    const messages: CoreMessage[] = this.judgeDetails.getPrompt("prompt", {
+      user_profile: userString,
+      user_tweets: tweetsString,
+    });
 
     const result = await generateText({
       model: anthropicSonnet,

@@ -1,7 +1,7 @@
 import { TwitterApi } from "twitter-api-v2";
 import { YamlReader } from "../util/yaml";
 import { anthropicSonnet } from "../clients/anthropic";
-import { CoreMessage, generateText, CoreTool } from "ai";
+import { generateText, CoreTool, tool } from "ai";
 import { langfuse } from "../clients/langfuse";
 import { NaughtyOrNiceAgent } from "./analyzeProfile";
 import { z } from "zod";
@@ -22,45 +22,54 @@ export class ReplyAgent {
   private createTools(
     naughtyOrNiceAgent: NaughtyOrNiceAgent
   ): Record<string, CoreTool> {
+    const naughtyOrNiceParams = z.object({
+      username: z.string().describe("Twitter username to analyze"),
+    });
+
+    const sendTweetToEditorParams = z.object({
+      tweet: z.string().describe("Draft tweet to be reviewed"),
+    });
+
+    const postTweetParams = z.object({
+      tweet: z.string().describe("Tweet to be posted"),
+    });
+
     return {
-      //   judge_user: {
-      //     description: "Judges a user",
-      //     parameters: z.object({
-      //       username: z.string().describe("Twitter username to judge"),
-      //     }),
-      //   },
-      naughtyOrNice: {
+      naughtyOrNice: tool<typeof naughtyOrNiceParams, string>({
         description:
           "Determines if someone is naughty or nice based on their profile",
         parameters: z.object({
           username: z.string().describe("Twitter username to analyze"),
         }),
         execute: async (input) => {
-          return await naughtyOrNiceAgent.analyzeProfile(input.username);
+          console.log("Analyzing profile:", input.username);
+          const result = await naughtyOrNiceAgent.analyzeProfile(
+            input.username
+          );
+          return result;
         },
-      },
-      sendTweetToEditor: {
+      }),
+      sendTweetToEditor: tool<typeof sendTweetToEditorParams, string>({
         description: "Sends a draft tweet to an editor for review",
         parameters: z.object({
           tweet: z.string().describe("Draft tweet to be reviewed"),
         }),
         execute: async (input) => {
-          // Mock implementation
           console.log("Sending tweet to editor:", input.tweet);
-          return input.tweet;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return "test";
         },
-      },
-      postTweet: {
-        description: "Posts the final version of the tweet",
-        parameters: z.object({
-          tweet: z.string().describe("Tweet to be posted"),
-        }),
+      }),
+      postTweet: tool<typeof postTweetParams, string>({
+        description: "Posts a tweet to Twitter",
+        parameters: postTweetParams,
         execute: async (input) => {
-          // Mock implementation
           console.log("Posting tweet:", input.tweet);
-          return "Tweet posted successfully";
+
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return "test";
         },
-      },
+      }),
     };
   }
 
@@ -90,10 +99,6 @@ export class ReplyAgent {
       throw new Error("No messages generated from prompt");
     }
 
-    console.log("Number of messages:", processedMessages.length);
-    console.log("Number of tools:", Object.keys(this.tools).length);
-    console.log("Tools:", this.tools);
-
     const result = await generateText({
       model: anthropicSonnet,
       messages: processedMessages,
@@ -101,6 +106,7 @@ export class ReplyAgent {
       tools: this.tools,
       maxSteps: 6,
       maxTokens: 3000,
+      toolChoice: "auto",
       experimental_telemetry: {
         isEnabled: true,
         functionId: "generateReply",
