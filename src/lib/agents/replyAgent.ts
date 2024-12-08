@@ -7,20 +7,25 @@ import { NaughtyOrNiceAgent } from "./analyzeProfile";
 import { z } from "zod";
 import { TweetWithContext } from "../stores/twitter";
 import { EditorAgent } from "./editorAgent";
-
+import {
+  CoinDetailsRepository,
+  CoinPriceRepository,
+} from "../stores/coinmarketcap";
+import { globals } from "../util/globals";
 export class ReplyAgent {
   private replyDetails: YamlReader;
   constructor(
     private readonly twitterClient: TwitterApi,
     private readonly naughtyOrNiceAgent: NaughtyOrNiceAgent,
-    private readonly editorAgent: EditorAgent
+    private readonly editorAgent: EditorAgent,
+    private readonly coinDetailsRepository: CoinDetailsRepository,
+    private readonly coinPriceRepository: CoinPriceRepository
   ) {
     this.replyDetails = new YamlReader("src/prompts/reply.yaml");
   }
 
   private createTools(
     replyingTo: TweetWithContext,
-    dryRun: boolean,
     traceId: string
   ): Record<string, CoreTool> {
     const naughtyOrNiceParams = z.object({
@@ -35,7 +40,30 @@ export class ReplyAgent {
       tweet: z.string().describe("Tweet to be posted"),
     });
 
+    const coinDetailsParams = z.object({
+      symbol: z.string().describe("Coin symbol to get details about"),
+    });
+
     return {
+      coinDetails: tool<typeof coinDetailsParams, string>({
+        description:
+          "Gets details about a coin, useful when someone mentions a coin using $<SYMBOL>",
+        parameters: coinDetailsParams,
+        execute: async (input) => {
+          const details = await this.coinDetailsRepository.read(input.symbol);
+          if (!details) {
+            throw new Error(`Coin details not found for ${input.symbol}`);
+          }
+          const price = await this.coinPriceRepository.read(
+            details.id.toString(),
+            ["24h", "7d", "30d"]
+          );
+          return JSON.stringify({
+            details,
+            price,
+          });
+        },
+      }),
       naughtyOrNice: tool<typeof naughtyOrNiceParams, string>({
         description:
           "Determines if someone is naughty or nice based on their profile",
@@ -71,7 +99,7 @@ export class ReplyAgent {
         description: "Posts a tweet to Twitter",
         parameters: postTweetParams,
         execute: async (input) => {
-          if (dryRun) {
+          if (!globals.get("postTweet")) {
             console.log("Dry run: would have posted tweet:", input.tweet);
             return "tweet would have been posted!";
           }
@@ -87,17 +115,14 @@ export class ReplyAgent {
     };
   }
 
-  public async generateReply(
-    tweet: TweetWithContext,
-    dryRun: boolean = false
-  ): Promise<string> {
+  public async generateReply(tweet: TweetWithContext): Promise<string> {
     const traceId = crypto.randomUUID();
     langfuse.trace({
       id: traceId,
       name: "generateReply",
     });
 
-    const tools = this.createTools(tweet, dryRun, traceId);
+    const tools = this.createTools(tweet, traceId);
 
     console.log("Getting prompt messages...");
     const processedMessages = this.replyDetails.getPrompt("prompt", {

@@ -7,10 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:bot": "ts-node src/scripts/test-bot.ts"
+    "test:bot": "ts-node src/scripts/test-bot.ts",
+    "test:playground": "ts-node src/scripts/playground.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.0.2",
+    "@ai-sdk/anthropic": "^1.0.4",
     "@mastra/core": "^0.1.27-alpha.20",
     "@opentelemetry/api-logs": "^0.55.0",
     "@opentelemetry/auto-instrumentations-node": "^0.53.0",
@@ -21,6 +22,8 @@
     "@vercel/otel": "^1.10.0",
     "ai": "^4.0.12",
     "autoprefixer": "^10.0.1",
+    "coingecko-api-v3": "^0.0.29",
+    "coinmarketcap-api": "^3.1.1",
     "crypto": "^1.0.1",
     "langfuse-vercel": "^3.31.1",
     "lucide-react": "^0.462.0",

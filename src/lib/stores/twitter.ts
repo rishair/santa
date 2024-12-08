@@ -11,7 +11,6 @@ import TwitterApi, {
 import { Repository } from "./repo";
 import { anthropicSonnet } from "../clients/anthropic";
 import { generateText } from "ai";
-import { imageUrlToBase64 } from "../util/files";
 
 export type ITwitterUserMentionsRepository = Repository<
   string,

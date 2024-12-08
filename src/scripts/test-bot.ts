@@ -19,6 +19,10 @@ import {
   UserTweetsRepository,
 } from "../lib/stores/twitter";
 import { globals } from "../lib/util/globals";
+import {
+  CoinDetailsRepository,
+  CoinPriceRepository,
+} from "../lib/stores/coinmarketcap";
 
 sdk.start();
 
@@ -91,7 +95,9 @@ const userMentionsRepository = new MediaHydratingTweetRepository(
 const replyAgent = new ReplyAgent(
   twitterClient,
   new NaughtyOrNiceAgent(userTweetsRepository, userProfileRepository),
-  new EditorAgent()
+  new EditorAgent(),
+  new CoinDetailsRepository(),
+  new CoinPriceRepository()
 );
 
 const tweetsRepliedToRepository = new MongoRepository<string, void, boolean>(
@@ -152,7 +158,7 @@ export class SantaBot {
         continue;
       }
 
-      const reply = await this.replyAgent.generateReply(mention, true);
+      const reply = await this.replyAgent.generateReply(mention);
       await this.tweetsRepliedToRepository.store(mention.id, true);
       console.log("🎄 Reply:", reply);
       break;
@@ -172,6 +178,8 @@ export class SantaBot {
 }
 
 async function main() {
+  globals.set("cacheEnabled", false);
+  globals.set("postTweet", false);
   const user = await userByScreenNameRepository.read("robosantahoho");
   const bot = new SantaBot(
     user.id,
@@ -187,8 +195,10 @@ async function main() {
 
 async function test() {
   globals.set("cacheEnabled", false);
+  globals.set("postTweet", false);
   const tweet = await singleTweetRepository.read("1865608256174825804");
-  console.log(tweet);
+  const reply = await replyAgent.generateReply(tweet);
+  console.log(reply);
 }
 
 test();

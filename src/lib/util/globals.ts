@@ -1,5 +1,6 @@
 interface GlobalConfig {
   cacheEnabled: boolean;
+  postTweet: boolean;
 }
 
 class GlobalConfiguration {
@@ -10,6 +11,7 @@ class GlobalConfiguration {
     // Default configuration values
     this.config = {
       cacheEnabled: true,
+      postTweet: true,
     };
   }
 
