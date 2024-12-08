@@ -5,22 +5,23 @@ import { generateText, CoreTool, tool } from "ai";
 import { langfuse } from "../clients/langfuse";
 import { NaughtyOrNiceAgent } from "./analyzeProfile";
 import { z } from "zod";
-import { TweetWithContext } from "../stores/repo";
+import { TweetWithContext } from "../stores/twitter";
+import { EditorAgent } from "./editorAgent";
 
 export class ReplyAgent {
   private replyDetails: YamlReader;
-  private tools: Record<string, CoreTool>;
-
   constructor(
     private readonly twitterClient: TwitterApi,
-    private readonly naughtyOrNiceAgent: NaughtyOrNiceAgent
+    private readonly naughtyOrNiceAgent: NaughtyOrNiceAgent,
+    private readonly editorAgent: EditorAgent
   ) {
     this.replyDetails = new YamlReader("src/prompts/reply.yaml");
-    this.tools = this.createTools(naughtyOrNiceAgent);
   }
 
   private createTools(
-    naughtyOrNiceAgent: NaughtyOrNiceAgent
+    replyingTo: TweetWithContext,
+    dryRun: boolean,
+    traceId: string
   ): Record<string, CoreTool> {
     const naughtyOrNiceParams = z.object({
       username: z.string().describe("Twitter username to analyze"),
@@ -43,8 +44,9 @@ export class ReplyAgent {
         }),
         execute: async (input) => {
           console.log("Analyzing profile:", input.username);
-          const result = await naughtyOrNiceAgent.analyzeProfile(
-            input.username
+          const result = await this.naughtyOrNiceAgent.analyzeProfile(
+            input.username,
+            traceId
           );
           return result;
         },
@@ -56,37 +58,49 @@ export class ReplyAgent {
         }),
         execute: async (input) => {
           console.log("Sending tweet to editor:", input.tweet);
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          return "test";
+          const result = await this.editorAgent.editTweet(
+            input.tweet,
+            replyingTo,
+            traceId
+          );
+          console.log("Editor result:", result);
+          return result;
         },
       }),
       postTweet: tool<typeof postTweetParams, string>({
         description: "Posts a tweet to Twitter",
         parameters: postTweetParams,
         execute: async (input) => {
+          if (dryRun) {
+            console.log("Dry run: would have posted tweet:", input.tweet);
+            return "tweet would have been posted!";
+          }
           console.log("Posting tweet:", input.tweet);
-
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          return "test";
+          await this.twitterClient.v2.tweet(input.tweet, {
+            reply: {
+              in_reply_to_tweet_id: replyingTo.id,
+            },
+          });
+          return "tweet posted!";
         },
       }),
     };
   }
 
-  public async generateReply(tweet: TweetWithContext): Promise<string> {
+  public async generateReply(
+    tweet: TweetWithContext,
+    dryRun: boolean = false
+  ): Promise<string> {
     const traceId = crypto.randomUUID();
     langfuse.trace({
       id: traceId,
       name: "generateReply",
     });
 
-    console.log("Getting santa_bio...");
-    const santaBio = this.replyDetails.get("santa_bio");
-    console.log("Santa bio:", santaBio);
+    const tools = this.createTools(tweet, dryRun, traceId);
 
     console.log("Getting prompt messages...");
     const processedMessages = this.replyDetails.getPrompt("prompt", {
-      santa_bio: santaBio,
       user_tweet: JSON.stringify(tweet),
     });
 
@@ -103,8 +117,8 @@ export class ReplyAgent {
       model: anthropicSonnet,
       messages: processedMessages,
       temperature: 0.7,
-      tools: this.tools,
-      maxSteps: 6,
+      tools: tools,
+      maxSteps: 10,
       maxTokens: 3000,
       toolChoice: "auto",
       experimental_telemetry: {

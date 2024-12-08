@@ -1,23 +1,58 @@
 import * as yaml from "yaml";
 import * as fs from "fs";
 import { CoreMessage } from "ai";
+import path from "path";
+
+interface IncludedData {
+  [key: string]: any;
+}
 
 export class YamlReader {
   private data: any;
-  private variables: Record<string, string> = {};
+  private basePath: string;
+  private parsed: any;
 
   constructor(filePath: string) {
-    const fileContents = fs.readFileSync(filePath, "utf8");
-    this.data = yaml.parse(fileContents);
+    this.basePath = path.dirname(filePath);
+    this.parsed = this.loadYaml(filePath);
+    this.data = this.resolveIncludes(this.parsed);
   }
 
-  setVariables(variables: Record<string, string>) {
-    this.variables = variables;
+  private loadYaml(filePath: string): any {
+    const fileContents = fs.readFileSync(filePath, "utf8");
+    return yaml.parse(fileContents);
+  }
+
+  private resolveIncludes(obj: any): any {
+    if (!obj) return obj;
+
+    if (obj.includes) {
+      const includedData: IncludedData = {};
+
+      Object.entries(obj.includes).forEach(
+        ([key, includePath]: [string, any]) => {
+          if (!includePath || typeof includePath !== "string") {
+            throw new Error(
+              `Include path for key "${key}" must be a string, received: ${typeof includePath}. Value: ${JSON.stringify(
+                includePath
+              )}`
+            );
+          }
+          for (const [k, v] of Object.entries(this.loadYaml(includePath))) {
+            includedData[`${key}.${k}`] = v;
+          }
+        }
+      );
+
+      return { ...includedData, ...obj };
+    }
+
+    return {};
   }
 
   get(path: string, variables: Record<string, string> = {}): any {
-    const mergedVariables = { ...this.variables, ...variables };
-    const value = this.getNestedValue(this.data, path.split("."));
+    const mergedVariables = { ...this.data, ...variables };
+    const value = this.getNestedValue(this.parsed, path.split("."));
     return this.replaceVariablesRecursively(value, mergedVariables);
   }
 
@@ -25,6 +60,8 @@ export class YamlReader {
     name: string,
     variables: Record<string, string> = {}
   ): CoreMessage[] {
+    const mergedVariables = { ...this.data, ...variables };
+
     const rawMessages = this.get(name) as Array<{
       role: "system" | "user" | "assistant";
       content: string;
@@ -32,7 +69,10 @@ export class YamlReader {
 
     return rawMessages.map((message) => ({
       role: message.role,
-      content: this.replaceVariablesRecursively(message.content, variables),
+      content: this.replaceVariablesRecursively(
+        message.content,
+        mergedVariables
+      ),
     }));
   }
 

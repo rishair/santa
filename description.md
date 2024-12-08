@@ -34,3 +34,15 @@ Santa agent:
         > send_tweet_to_editor 
         > post_tweet
     <start by describing what you're seeing in the tweet thread, then explain your plan, then execute that plan, remember to always send_tweet_to_editor then post_tweet when you feel good about it>
+
+
+
+
+okay, so I can store the more recent judgement, as well as all the tweets made since that time.
+
+
+
+* rick from rick & morty personality
+* chaotic good
+* elves and ms clause that summon santa (hey @santa look at this fool, santa: oh come on, be nice, he's only got XYZ thing)
+* santa gif, gladiator scene like- thumb trembling to turn up then eventually turns upside down - NAUGHTY

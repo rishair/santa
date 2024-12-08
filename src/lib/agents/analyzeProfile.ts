@@ -1,26 +1,32 @@
-import { TwitterApi, UserV2 } from "twitter-api-v2";
+import { UserV2 } from "twitter-api-v2";
 import { YamlReader } from "../util/yaml";
 import { anthropicSonnet } from "../clients/anthropic";
 import { CoreMessage, generateText } from "ai";
 import { langfuse } from "../clients/langfuse";
-import { Repository, TweetWithContext } from "../stores/repo";
+import { Repository } from "../stores/repo";
+import { TweetWithContext } from "../stores/twitter";
 
 export class NaughtyOrNiceAgent {
   private judgeDetails: YamlReader;
 
   constructor(
-    private readonly twitterClient: TwitterApi,
     private readonly userTweetsRepository: Repository<
       string,
+      null,
       TweetWithContext[]
     >,
-    private readonly userProfileRepository: Repository<string, UserV2>
+    private readonly userProfileRepository: Repository<string, null, UserV2>
   ) {
     this.judgeDetails = new YamlReader("src/prompts/naughty_or_nice.yaml");
   }
 
-  public async analyzeProfile(username: string): Promise<string> {
-    const traceId = crypto.randomUUID();
+  public async analyzeProfile(
+    username: string,
+    traceId?: string
+  ): Promise<string> {
+    if (!traceId) {
+      traceId = crypto.randomUUID();
+    }
     langfuse.trace({
       id: traceId,
       name: "analyzeProfile",

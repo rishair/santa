@@ -1,0 +1,40 @@
+interface GlobalConfig {
+  cacheEnabled: boolean;
+}
+
+class GlobalConfiguration {
+  private static instance: GlobalConfiguration;
+  private config: GlobalConfig;
+
+  private constructor() {
+    // Default configuration values
+    this.config = {
+      cacheEnabled: true,
+    };
+  }
+
+  public static getInstance(): GlobalConfiguration {
+    if (!GlobalConfiguration.instance) {
+      GlobalConfiguration.instance = new GlobalConfiguration();
+    }
+    return GlobalConfiguration.instance;
+  }
+
+  public get<K extends keyof GlobalConfig>(key: K): GlobalConfig[K] {
+    return this.config[key];
+  }
+
+  public set<K extends keyof GlobalConfig>(
+    key: K,
+    value: GlobalConfig[K]
+  ): void {
+    this.config[key] = value;
+  }
+
+  public getAll(): Readonly<GlobalConfig> {
+    return { ...this.config };
+  }
+}
+
+// Export a singleton instance
+export const globals = GlobalConfiguration.getInstance();
