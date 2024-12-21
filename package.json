@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:bot": "ts-node src/scripts/test-bot.ts",
+    "start:bot": "ts-node src/scripts/bot.ts",
     "test:playground": "ts-node src/scripts/playground.ts"
   },
   "dependencies": {

@@ -1,148 +1,127 @@
-import { TwitterApi } from "twitter-api-v2";
+import { TwitterApi, UserV2 } from "twitter-api-v2";
 import { YamlReader } from "../util/yaml";
 import { anthropicSonnet } from "../clients/anthropic";
-import { generateText, CoreTool, tool } from "ai";
+import { generateText } from "ai";
 import { langfuse } from "../clients/langfuse";
-import { NaughtyOrNiceAgent } from "./analyzeProfile";
-import { z } from "zod";
-import { TweetWithContext } from "../stores/twitter";
+import { ConversationNaughtyOrNiceAgent } from "./analyzeProfile";
+import { ConversationThreadFinderRepository } from "../stores/twitterConversation";
+import { Tweet, TweetWithContext } from "../stores/twitter";
 import { EditorAgent } from "./editorAgent";
+import { printTweet, printTweets } from "../util/tweets";
+import {
+  createCoinDetailsTool,
+  createNaughtyOrNiceTool,
+  createPostTweetTool,
+  createSendTweetToEditorTool,
+} from "./tools";
 import {
   CoinDetailsRepository,
   CoinPriceRepository,
 } from "../stores/coinmarketcap";
-import { globals } from "../util/globals";
+import { UserRepliesRepository } from "../stores/user";
 export class ReplyAgent {
   private replyDetails: YamlReader;
   constructor(
     private readonly twitterClient: TwitterApi,
-    private readonly naughtyOrNiceAgent: NaughtyOrNiceAgent,
+    private readonly conversationThreadFinderRepository: ConversationThreadFinderRepository,
+    private readonly naughtyOrNiceAgent: ConversationNaughtyOrNiceAgent,
     private readonly editorAgent: EditorAgent,
     private readonly coinDetailsRepository: CoinDetailsRepository,
-    private readonly coinPriceRepository: CoinPriceRepository
+    private readonly coinPriceRepository: CoinPriceRepository,
+    private readonly userRepliesRepository: UserRepliesRepository
   ) {
     this.replyDetails = new YamlReader("src/prompts/reply.yaml");
   }
 
-  private createTools(
-    replyingTo: TweetWithContext,
-    traceId: string
-  ): Record<string, CoreTool> {
-    const naughtyOrNiceParams = z.object({
-      username: z.string().describe("Twitter username to analyze"),
-    });
-
-    const sendTweetToEditorParams = z.object({
-      tweet: z.string().describe("Draft tweet to be reviewed"),
-    });
-
-    const postTweetParams = z.object({
-      tweet: z.string().describe("Tweet to be posted"),
-    });
-
-    const coinDetailsParams = z.object({
-      symbol: z.string().describe("Coin symbol to get details about"),
-    });
-
-    return {
-      coinDetails: tool<typeof coinDetailsParams, string>({
-        description:
-          "Gets details about a coin, useful when someone mentions a coin using $<SYMBOL>",
-        parameters: coinDetailsParams,
-        execute: async (input) => {
-          const details = await this.coinDetailsRepository.read(input.symbol);
-          if (!details) {
-            throw new Error(`Coin details not found for ${input.symbol}`);
-          }
-          const price = await this.coinPriceRepository.read(
-            details.id.toString(),
-            ["24h", "7d", "30d"]
-          );
-          return JSON.stringify({
-            details,
-            price,
-          });
-        },
-      }),
-      naughtyOrNice: tool<typeof naughtyOrNiceParams, string>({
-        description:
-          "Determines if someone is naughty or nice based on their profile",
-        parameters: z.object({
-          username: z.string().describe("Twitter username to analyze"),
-        }),
-        execute: async (input) => {
-          console.log("Analyzing profile:", input.username);
-          const result = await this.naughtyOrNiceAgent.analyzeProfile(
-            input.username,
-            traceId
-          );
-          return result;
-        },
-      }),
-      sendTweetToEditor: tool<typeof sendTweetToEditorParams, string>({
-        description: "Sends a draft tweet to an editor for review",
-        parameters: z.object({
-          tweet: z.string().describe("Draft tweet to be reviewed"),
-        }),
-        execute: async (input) => {
-          console.log("Sending tweet to editor:", input.tweet);
-          const result = await this.editorAgent.editTweet(
-            input.tweet,
-            replyingTo,
-            traceId
-          );
-          console.log("Editor result:", result);
-          return result;
-        },
-      }),
-      postTweet: tool<typeof postTweetParams, string>({
-        description: "Posts a tweet to Twitter",
-        parameters: postTweetParams,
-        execute: async (input) => {
-          if (!globals.get("postTweet")) {
-            console.log("Dry run: would have posted tweet:", input.tweet);
-            return "tweet would have been posted!";
-          }
-          console.log("Posting tweet:", input.tweet);
-          await this.twitterClient.v2.tweet(input.tweet, {
-            reply: {
-              in_reply_to_tweet_id: replyingTo.id,
-            },
-          });
-          return "tweet posted!";
-        },
-      }),
-    };
-  }
-
-  public async generateReply(tweet: TweetWithContext): Promise<string> {
+  public async generateReply(
+    user: UserV2,
+    tweet: TweetWithContext
+  ): Promise<{
+    text: string;
+    tweetId: string;
+    newReply: boolean;
+  }> {
     const traceId = crypto.randomUUID();
     langfuse.trace({
       id: traceId,
       name: "generateReply",
     });
 
-    const tools = this.createTools(tweet, traceId);
+    const prevReply = await this.userRepliesRepository.read(tweet.id);
+    if (prevReply) {
+      return {
+        text: prevReply.replyTweet.text,
+        tweetId: prevReply.replyTweet.id,
+        newReply: false,
+      };
+    }
+
+    const threads = await this.conversationThreadFinderRepository.read(tweet);
+
+    const prevInteractions = await this.userRepliesRepository.findByUsernames(
+      threads.replyBranchThread.map((t) => t.username)
+    );
 
     console.log("Getting prompt messages...");
     const processedMessages = this.replyDetails.getPrompt("prompt", {
-      user_tweet: JSON.stringify(tweet),
+      user_tweet: printTweet(tweet, false),
+      previous_interactions:
+        prevInteractions.length > 0
+          ? prevInteractions
+              .slice(0, 4)
+              .map(
+                (r) =>
+                  `<conversation>${printTweets(
+                    r.replyBranchThread,
+                    false
+                  )}</conversation>`
+              )
+              .join("\n")
+          : "None",
+      conversation_root_thread: printTweets(
+        threads.conversationRootThread,
+        false
+      ),
+      reply_branch_thread: printTweets(threads.replyBranchThread, false),
     });
 
-    console.log(
-      "Final messages to send:",
-      JSON.stringify(processedMessages, null, 2)
-    );
-
-    if (!processedMessages || processedMessages.length === 0) {
-      throw new Error("No messages generated from prompt");
-    }
-
+    let postTweetResult:
+      | { id: string; text: string; dryRun: boolean }
+      | undefined;
     const result = await generateText({
       model: anthropicSonnet,
       messages: processedMessages,
       temperature: 0.7,
-      tools: tools,
+      tools: {
+        coinDetails: createCoinDetailsTool(
+          this.coinDetailsRepository,
+          this.coinPriceRepository
+        ),
+        naughtyOrNice: createNaughtyOrNiceTool(
+          this.naughtyOrNiceAgent,
+          tweet,
+          threads.conversationRootThread,
+          threads.replyBranchThread,
+          traceId
+        ),
+        sendTweetToEditor: createSendTweetToEditorTool(
+          this.editorAgent,
+          tweet,
+          traceId
+        ),
+        postTweet: createPostTweetTool(this.twitterClient, tweet),
+      },
+      onStepFinish: ({ toolResults }) => {
+        toolResults.forEach((toolResult: { toolName: string; result: any }) => {
+          if (toolResult.toolName === "postTweet") {
+            postTweetResult = toolResult.result as {
+              id: string;
+              text: string;
+              dryRun: boolean;
+            };
+          }
+        });
+      },
       maxSteps: 10,
       maxTokens: 3000,
       toolChoice: "auto",
@@ -155,6 +134,31 @@ export class ReplyAgent {
       },
     });
 
-    return result.text;
+    if (postTweetResult && !postTweetResult.dryRun) {
+      const newTweet: Tweet = {
+        id: postTweetResult.id,
+        text: postTweetResult.text,
+        username: user.username,
+        createdAt: new Date(),
+        conversationId: tweet.conversationId,
+        engagement: undefined,
+        media: undefined,
+      };
+
+      this.userRepliesRepository.store({
+        replyToTweetId: tweet.id,
+        replyTweet: newTweet,
+        usernames: threads.replyBranchThread.map((tweet) => tweet.username),
+        replyBranchThread: threads.replyBranchThread.concat(newTweet),
+        conversationRootThread: threads.conversationRootThread,
+        createdAt: new Date(),
+      });
+    }
+
+    return {
+      text: postTweetResult?.text || "",
+      tweetId: postTweetResult?.id || "",
+      newReply: true,
+    };
   }
 }

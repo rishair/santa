@@ -29,7 +29,6 @@ export class CoinListRepository implements NoArgRepository<CoinMap> {
       "cryptocurrency/map",
       "v2"
     );
-    console.log(response);
     const coins = (response as any).data as CoinDetails[];
 
     return coins.reduce((acc, coin) => {
@@ -78,7 +77,6 @@ export class CoinDetailsRepository
       "v2",
       { symbol }
     );
-    console.log(response);
     const data = (response as any).data;
     // Get the first coin ID from the response
     const firstCoinId = Object.keys(data)[0];
@@ -158,8 +156,6 @@ export class CoinPriceRepository
         time_period: periods.join(","),
       }
     );
-
-    console.log(response);
 
     const data = (response as any).data;
     if (!data || Object.keys(data).length === 0) {

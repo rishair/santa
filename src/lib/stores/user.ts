@@ -1,0 +1,83 @@
+import { Db, ObjectId } from "mongodb";
+import { TweetWithContext } from "./twitter";
+import { Repository } from "./repo";
+import TwitterApi from "twitter-api-v2";
+import { DMEventV2 } from "twitter-api-v2/dist/esm/types/v2/dm.v2.types";
+// Stores all the interactions that we've had with a user, along with the full text of
+// the reply chain and context we used for it.
+
+export type UserReplies = {
+  replyToTweetId: string;
+  replyTweet: {
+    id: string;
+    text: string;
+  };
+  usernames: string[];
+  replyBranchThread: TweetWithContext[];
+  conversationRootThread: TweetWithContext[];
+  createdAt: Date;
+};
+
+// Add MongoDB document type
+type UserRepliesDocument = UserReplies & {
+  _id: ObjectId;
+};
+
+export class UserRepliesRepository
+  implements Repository<string, null, UserReplies>
+{
+  private readonly collection;
+
+  public constructor(private readonly db: Db) {
+    this.collection = this.db.collection<UserRepliesDocument>("user_replies");
+    // Create index for username queries
+    this.collection.createIndex({ usernames: 1, createdAt: -1 });
+  }
+
+  // Helper method to map DB document to domain model
+  private mapToUserReplies(doc: UserRepliesDocument): UserReplies {
+    const { _id, ...userReplies } = doc;
+    return userReplies;
+  }
+
+  public async store(reply: UserReplies) {
+    await this.collection.insertOne({
+      ...reply,
+      _id: new ObjectId(),
+      createdAt: new Date(),
+    });
+  }
+
+  public async read(replyToTweetId: string): Promise<UserReplies | null> {
+    const doc = await this.collection.findOne({ replyToTweetId });
+    return doc ? this.mapToUserReplies(doc) : null;
+  }
+
+  public async findByUsernames(usernames: string[]): Promise<UserReplies[]> {
+    const docs = await this.collection
+      .find({ usernames: { $in: usernames } })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    return docs.map(this.mapToUserReplies);
+  }
+}
+
+// Retrieve direct messages for this user from Twitter
+export class UserDirectMessagesRepository {
+  private readonly twitterClient: TwitterApi;
+
+  public constructor(twitterClient: TwitterApi) {
+    this.twitterClient = twitterClient;
+  }
+
+  public async read(): Promise<DMEventV2[]> {
+    const messages = await this.twitterClient.v2.listDmEvents({
+      max_results: 50,
+      event_types: ["MessageCreate"],
+      expansions: ["referenced_tweets.id"],
+      "tweet.fields": ["attachments"],
+    });
+    return messages.events;
+  }
+}

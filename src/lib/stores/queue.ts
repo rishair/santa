@@ -1,82 +1,51 @@
-import { MongoClient } from "mongodb";
+import { Db, ObjectId, OptionalUnlessRequiredId } from "mongodb";
 
-export interface QueueItem<T> {
-  id: string;
-  data: T;
+export interface QueuedItem<T> {
+  _id: ObjectId;
   createdAt: Date;
   processedAt?: Date;
-  status: "pending" | "processing" | "completed" | "failed";
-  error?: string;
+  value: T;
 }
 
 export class MongoQueue<T> {
-  constructor(
-    private readonly mongoClient: MongoClient,
-    private readonly queueName: string
-  ) {}
+  private collection;
 
-  public async enqueue(data: T): Promise<string> {
-    const item: QueueItem<T> = {
-      id: crypto.randomUUID(),
-      data,
+  constructor(db: Db, collectionName: string) {
+    this.collection = db.collection<QueuedItem<T>>(collectionName);
+  }
+
+  async enqueue(value: T): Promise<ObjectId> {
+    const item: OptionalUnlessRequiredId<QueuedItem<T>> = {
+      _id: new ObjectId(),
       createdAt: new Date(),
-      status: "pending",
+      value,
     };
 
-    await this.mongoClient
-      .db("santa")
-      .collection(this.queueName)
-      .insertOne(item);
-
-    return item.id;
+    const result = await this.collection.insertOne(item);
+    return result.insertedId;
   }
 
-  public async dequeue(): Promise<QueueItem<T> | null> {
-    const result = await this.mongoClient
-      .db("santa")
-      .collection(this.queueName)
-      .findOneAndUpdate(
-        { status: "pending" },
-        { $set: { status: "processing", processedAt: new Date() } },
-        { sort: { createdAt: 1 } }
-      );
+  async dequeue(): Promise<QueuedItem<T> | null> {
+    // Find and update in one atomic operation
+    const result = await this.collection.findOneAndUpdate(
+      { processedAt: { $exists: false } },
+      { $set: { processedAt: new Date() } },
+      { sort: { createdAt: 1 } }
+    );
 
-    return result?.value ?? null;
+    return result ?? null;
   }
 
-  public async complete(id: string): Promise<void> {
-    await this.mongoClient
-      .db("santa")
-      .collection(this.queueName)
-      .updateOne(
-        { id },
-        { $set: { status: "completed", processedAt: new Date() } }
-      );
+  async peek(): Promise<QueuedItem<T> | null> {
+    return await this.collection.findOne(
+      { processedAt: { $exists: false } },
+      { sort: { createdAt: 1 } }
+    );
   }
 
-  public async fail(id: string, error: string): Promise<void> {
-    await this.mongoClient
-      .db("santa")
-      .collection(this.queueName)
-      .updateOne(
-        { id },
-        { $set: { status: "failed", error, processedAt: new Date() } }
-      );
-  }
-
-  public async peek(): Promise<QueueItem<T> | null> {
-    const result = await this.mongoClient
-      .db("santa")
-      .collection(this.queueName)
-      .findOne({ status: "pending" }, { sort: { createdAt: 1 } });
-
-    return result?.value ?? null;
-  }
-
-  public async size(): Promise<number> {
-    return this.mongoClient
-      .db("santa")
-      .collection(this.queueName)
-      .countDocuments({ status: "pending" });
+  async size(): Promise<number> {
+    return await this.collection.countDocuments({
+      processedAt: { $exists: false },
+    });
   }
 }

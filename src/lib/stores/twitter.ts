@@ -3,14 +3,38 @@ import TwitterApi, {
   TTweetv2MediaField,
   TTweetv2TweetField,
   TweetPublicMetricsV2,
+  TweetSearchRecentV2Paginator,
   TweetUserMentionTimelineV2Paginator,
   TweetUserTimelineV2Paginator,
+  Tweetv2SearchParams,
   TweetV2SingleResult,
+  TweetV2UserTimelineParams,
   UserV2,
 } from "twitter-api-v2";
 import { Repository } from "./repo";
 import { anthropicSonnet } from "../clients/anthropic";
 import { generateText } from "ai";
+
+export type TweetMedia = {
+  type: "image";
+  url: string;
+  description?: string;
+};
+
+export type Tweet = {
+  text: string;
+  createdAt: Date | undefined;
+  username: string;
+  id: string;
+  conversationId: string;
+  engagement: TweetPublicMetricsV2 | undefined;
+  media?: TweetMedia[];
+};
+
+export type TweetWithContext = Tweet & {
+  replyToTweet?: Tweet;
+  quotedTweet?: Tweet;
+};
 
 export type ITwitterUserMentionsRepository = Repository<
   string,
@@ -25,6 +49,7 @@ export const DefaultTweetFields: TTweetv2TweetField[] = [
   "author_id",
   "public_metrics",
   "attachments",
+  "conversation_id",
 ];
 
 export const DefaultTweetExpansionFields: TTweetv2Expansion[] = [
@@ -80,52 +105,42 @@ export class TwitterUserByScreenNameRepository
   }
 }
 
-export class TwitterTweetRepository
-  implements Repository<string, void, TweetWithContext>
-{
+export type ITweetRepository = Repository<string, void, TweetWithContext>;
+
+export class TwitterTweetRepository implements ITweetRepository {
   constructor(private readonly twitterClient: TwitterApi) {}
 
   public async read(tweetId: string): Promise<TweetWithContext | null> {
     const tweet = await this.twitterClient.v2.singleTweet(tweetId, {
       ...DefaultFields,
     });
+    if (tweet.errors) {
+      console.error("Error fetching tweet", tweetId, tweet.errors);
+      return null;
+    }
     return convertSingleTweet(tweet);
   }
 }
-
-export type TweetMedia = {
-  type: "image";
-  url: string;
-  description?: string;
-};
-
-export type Tweet = {
-  text: string;
-  createdAt: string | undefined;
-  username: string;
-  id: string;
-  engagement: TweetPublicMetricsV2 | undefined;
-  media?: TweetMedia[];
-};
-
-export type TweetWithContext = Tweet & {
-  replyToTweet?: Tweet;
-  quotedTweet?: Tweet;
-};
 
 export type ITweetMediaHydrator = Repository<Tweet, null, Tweet>;
 
 export class TweetMediaHydrator implements ITweetMediaHydrator {
   public constructor() {}
-
   public async read(tweet: Tweet): Promise<Tweet> {
     // iterate through each of the tweets, find the media, and if there's a URL without a description,
-    // then use an LLM to create a description and attach it to that piece of media, only if the type is "photo"
+    // then use an LLM to create a descripton and attach it to that piece of media, only if the type is "photo"
+    console.log(
+      `Processing tweet media for ${tweet.id} (${tweet.media?.map(
+        (m) => m.type
+      )})`
+    );
     if (tweet.media) {
       for (const media of tweet.media) {
         if (media.type === "image" && !media.description) {
+          console.log("Generating description for media", media.url);
           const description = await this.generateDescription(media.url, tweet);
           media.description = description;
+          console.log("Generated description:", description);
         }
       }
     }
@@ -245,31 +260,25 @@ export class SingleMediaHydratingTweetRepository
   }
 }
 
+export type UserTweetsParams = {
+  maxResults?: number;
+  startTime?: string;
+  excludes?: ("retweets" | "replies")[];
+};
+
 export class UserTweetsRepository
-  implements Repository<string, null, TweetWithContext[]>
+  implements Repository<string, TweetV2UserTimelineParams, TweetWithContext[]>
 {
   public constructor(private readonly twitterClient: TwitterApi) {}
 
-  public async read(userId: string): Promise<TweetWithContext[]> {
+  public async read(
+    userId: string,
+    params: TweetV2UserTimelineParams
+  ): Promise<TweetWithContext[]> {
     try {
       const tweets = await this.twitterClient.v2.userTimeline(userId, {
-        max_results: 5,
-        start_time: new Date(
-          Date.now() - 7 * 24 * 60 * 60 * 1000
-        ).toISOString(),
-        "tweet.fields": [
-          "text",
-          "created_at",
-          "referenced_tweets",
-          "author_id",
-          "public_metrics",
-        ],
-        "user.fields": ["username"],
-        expansions: [
-          "referenced_tweets.id",
-          "author_id",
-          "referenced_tweets.id.author_id",
-        ],
+        ...params,
+        ...DefaultFields,
       });
 
       return convertTimelineToTweets(tweets);
@@ -277,6 +286,66 @@ export class UserTweetsRepository
       console.error(`Error fetching tweets for ${userId}:`, error);
       return [];
     }
+  }
+}
+
+export type UserOriginalTweetsAndRepliesParams = {
+  maxResults?: number;
+};
+
+export type IUserOriginalTweetsAndRepliesRepository = Repository<
+  string,
+  UserOriginalTweetsAndRepliesParams,
+  UserOriginalTweetsAndRepliesResponse
+>;
+
+export type UserOriginalTweetsAndRepliesResponse = {
+  originalTweets: TweetWithContext[];
+  replyTweets: TweetWithContext[];
+};
+
+export class UserOriginalTweetsAndRepliesRepository
+  implements IUserOriginalTweetsAndRepliesRepository
+{
+  public constructor(private readonly twitterClient: TwitterApi) {}
+
+  public async read(
+    userId: string,
+    { maxResults = 10 }: UserOriginalTweetsAndRepliesParams
+  ): Promise<UserOriginalTweetsAndRepliesResponse> {
+    const allReplyTweets: TweetWithContext[] = [];
+    const allOriginalTweets: TweetWithContext[] = [];
+
+    function addTweets(tweets: TweetWithContext[]) {
+      tweets.forEach((tweet) => {
+        if (tweet.replyToTweet) {
+          allReplyTweets.push(tweet);
+        } else {
+          allOriginalTweets.push(tweet);
+        }
+      });
+    }
+
+    const replyTweets = await this.twitterClient.v2.userTimeline(userId, {
+      ...DefaultFields,
+      exclude: ["retweets"],
+      max_results: maxResults,
+    });
+
+    addTweets(convertTimelineToTweets(replyTweets));
+
+    // const originalTweets = await this.twitterClient.v2.userTimeline(userId, {
+    //   ...DefaultFields,
+    //   exclude: ["replies", "retweets"],
+    //   max_results: maxResults - allReplyTweets.length,
+    // });
+
+    // addTweets(convertTimelineToTweets(originalTweets));
+
+    return {
+      originalTweets: allOriginalTweets,
+      replyTweets: allReplyTweets,
+    };
   }
 }
 
@@ -303,6 +372,67 @@ export class UserProfileRepository implements Repository<string, null, UserV2> {
   }
 }
 
+export interface ITweetSearchRepository
+  extends Repository<
+    string,
+    Partial<Tweetv2SearchParams>,
+    TweetWithContext[]
+  > {}
+
+export class TweetSearchRepository implements ITweetSearchRepository {
+  public constructor(private readonly twitterClient: TwitterApi) {}
+
+  public async read(
+    query: string,
+    params: Partial<Tweetv2SearchParams>
+  ): Promise<TweetWithContext[]> {
+    const tweets = await this.twitterClient.v2.search(query, {
+      ...params,
+      ...DefaultFields,
+    });
+    return convertTimelineToTweets(tweets);
+  }
+}
+
+// // and it's reply to, until the limit is hit (limit provided ni the context)
+// export class TwitterConversationRepository
+//   implements Repository<string, null, TweetWithContext[]>
+// {
+//   public constructor(
+//     private readonly twitterClient: TwitterApi,
+//     private readonly maxTweets: number =
+//   ) {}
+
+//   public async read(tweetId: string): Promise<TweetWithContext[]> {
+//     const conversation: TweetWithContext[] = [];
+//     let currentTweetId = tweetId;
+//     let count = 0;
+
+//     while (currentTweetId && count < this.maxTweets) {
+//       const tweet = await this.twitterClient.v2.singleTweet(currentTweetId, {
+//         ...DefaultFields,
+//       });
+
+//       const tweetWithContext = convertSingleTweet(tweet);
+//       conversation.unshift(tweetWithContext); // Add to beginning to maintain chronological order
+
+//       // Look for reply_to reference to climb up the thread
+//       const replyToTweet = tweet.data.referenced_tweets?.find(
+//         (ref) => ref.type === "replied_to"
+//       );
+
+//       if (!replyToTweet) {
+//         break; // No more replies to climb
+//       }
+
+//       currentTweetId = replyToTweet.id;
+//       count++;
+//     }
+
+//     return conversation;
+//   }
+// }
+
 // Helper function to create user map from includes
 function createUserMap(users: any[] = []): Map<string, string> {
   return new Map(users.map((u) => [u.id, u.username]));
@@ -314,8 +444,6 @@ function convertTweetWithContext(
   userMap: Map<string, string>,
   mediaMap: Map<string, any> = new Map()
 ): TweetWithContext {
-  console.log("media map");
-  console.log(mediaMap);
   function extractMedia(tweetData: any): TweetMedia[] | undefined {
     if (!tweetData.attachments?.media_keys) return undefined;
 
@@ -338,9 +466,12 @@ function convertTweetWithContext(
       username: tweetData.author_id
         ? userMap.get(tweetData.author_id) || "unknown"
         : "unknown",
-      createdAt: tweetData.created_at,
+      createdAt: tweetData.created_at
+        ? new Date(tweetData.created_at)
+        : undefined,
       id: tweetData.id,
       engagement: tweetData.public_metrics,
+      conversationId: tweetData.conversation_id,
       media: extractMedia(tweetData),
     };
   }
@@ -368,7 +499,10 @@ function convertTweetWithContext(
 
 // Update the conversion functions to pass media map
 export function convertTimelineToTweets(
-  timeline: TweetUserTimelineV2Paginator | TweetUserMentionTimelineV2Paginator
+  timeline:
+    | TweetUserTimelineV2Paginator
+    | TweetUserMentionTimelineV2Paginator
+    | TweetSearchRecentV2Paginator
 ): TweetWithContext[] {
   const referencedTweets = new Map(
     timeline.includes?.tweets?.map((t) => [t.id, t]) || []

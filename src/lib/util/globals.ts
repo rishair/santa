@@ -1,6 +1,11 @@
+import dotenv from "dotenv";
+
+dotenv.config();
+
 interface GlobalConfig {
   cacheEnabled: boolean;
   postTweet: boolean;
+  santaUsername: string;
 }
 
 class GlobalConfiguration {
@@ -12,6 +17,7 @@ class GlobalConfiguration {
     this.config = {
       cacheEnabled: true,
       postTweet: true,
+      santaUsername: process.env.TWITTER_SANTA_USERNAME || "",
     };
   }
 
