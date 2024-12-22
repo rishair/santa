@@ -10,7 +10,7 @@ const tweetQueueRepository = new MongoQueue<string>(
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as { tweetId: string };
     const { tweetId } = body;
 
     if (!tweetId) {

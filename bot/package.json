@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start:bot": "ts-node scripts/bot.ts"
+    "build": "tsc",
+    "start:bot": "node dist/scripts/bot.js",
+    "dev:bot": "ts-node scripts/bot.ts",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.4",
@@ -45,6 +49,12 @@
     "eslint": "^8.0.0",
     "eslint-config-next": "14.1.0",
     "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "rimraf": "^5.0.0"
+  },
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./",
+    "sourceMap": true
   }
 }

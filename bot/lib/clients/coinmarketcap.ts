@@ -42,7 +42,7 @@ export class CoinMarketCapClient {
       };
     }
     const resp = await fetch(url, { headers });
-    return resp.json();
+    return resp.json() as Promise<JSON>;
   }
 }
 
