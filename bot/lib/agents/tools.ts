@@ -25,7 +25,7 @@ export function createCoinDetailsTool(
     execute: async (input) => {
       const details = await coinDetailsRepository.read(input.symbol);
       if (!details) {
-        throw new Error(`Coin details not found for ${input.symbol}`);
+        return "Coin details not found";
       }
       const price = await coinPriceRepository.read(details.id.toString(), [
         "24h",
