@@ -4,11 +4,12 @@ import { anthropicSonnet } from "../clients/anthropic";
 import { CoreMessage, generateText } from "ai";
 import { langfuse } from "../clients/langfuse";
 import { TweetWithContext } from "../stores/twitter";
+import { UserRepliesRepository } from "../stores/user";
 
 export class EditorAgent {
   private editorDetails: YamlReader;
 
-  constructor() {
+  constructor(private userRepliesRepository: UserRepliesRepository) {
     this.editorDetails = new YamlReader("prompts/editor.yaml");
   }
 
@@ -25,9 +26,14 @@ export class EditorAgent {
       name: "tweetEditor",
     });
 
+    const prevInteractions = await this.userRepliesRepository.getLatestTweets();
+
+    const latestTweets = prevInteractions.map((r) => r.replyTweet);
+
     const messages: CoreMessage[] = this.editorDetails.getPrompt("prompt", {
       tweet_text: tweet,
       replying_to: JSON.stringify(replyingTo),
+      latest_tweets: JSON.stringify(latestTweets),
     });
 
     const result = await generateText({

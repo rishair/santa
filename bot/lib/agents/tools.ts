@@ -150,10 +150,13 @@ export function createGetInteractionHistoryTool(
         input.username,
       ]);
       return prevInteractions
-        .map((r) => "<conversation>" + printTweets(r.replyBranchThread) + "</conversation>")
+        .map(
+          (r) =>
+            "<conversation>" +
+            printTweets(r.replyBranchThread) +
+            "</conversation>"
+        )
         .join("\n");
     },
   });
-}
-
 }

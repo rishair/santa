@@ -6,6 +6,7 @@ interface GlobalConfig {
   cacheEnabled: boolean;
   postTweet: boolean;
   santaUsername: string;
+  storeReplies: boolean;
 }
 
 class GlobalConfiguration {
@@ -17,6 +18,7 @@ class GlobalConfiguration {
     this.config = {
       cacheEnabled: true,
       postTweet: true,
+      storeReplies: true,
       santaUsername: process.env.TWITTER_SANTA_USERNAME || "",
     };
   }

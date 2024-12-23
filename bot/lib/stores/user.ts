@@ -3,6 +3,7 @@ import { TweetWithContext } from "./twitter";
 import { Repository } from "./repo";
 import TwitterApi from "twitter-api-v2";
 import { DMEventV2 } from "twitter-api-v2/dist/esm/types/v2/dm.v2.types";
+import { globals } from "../util/globals";
 // Stores all the interactions that we've had with a user, along with the full text of
 // the reply chain and context we used for it.
 export type UserReplies = {
@@ -50,13 +51,17 @@ export class UserRepliesRepository
   }
 
   public async store(reply: UserReplies) {
-    await this.collection.insertOne({
-      ...reply,
-      _id: new ObjectId(),
-      createdAt: new Date(),
-      // Ensure we store error if it exists, otherwise omit or store as null
-      error: reply.error ?? undefined,
-    });
+    if (globals.get("storeReplies")) {
+      await this.collection.insertOne({
+        ...reply,
+        _id: new ObjectId(),
+        createdAt: new Date(),
+        // Ensure we store error if it exists, otherwise omit or store as null
+        error: reply.error ?? undefined,
+      });
+    } else {
+      console.log("Debug flag: Not storing reply");
+    }
   }
 
   public async read(replyToTweetId: string): Promise<UserReplies | null> {
@@ -68,6 +73,16 @@ export class UserRepliesRepository
     const docs = await this.collection
       .find({ usernames: { $in: usernames } })
       .sort({ createdAt: -1 })
+      .toArray();
+
+    return docs.map(this.mapToUserReplies);
+  }
+
+  public async getLatestTweets(): Promise<UserReplies[]> {
+    const docs = await this.collection
+      .find()
+      .sort({ createdAt: -1 })
+      .limit(10)
       .toArray();
 
     return docs.map(this.mapToUserReplies);

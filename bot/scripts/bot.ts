@@ -139,7 +139,7 @@ const replyAgent = new ReplyAgent(
     coinDetailsRepository,
     coinPriceRepository
   ),
-  new EditorAgent(),
+  new EditorAgent(userRepliesRepository),
   coinDetailsRepository,
   coinPriceRepository,
   userRepliesRepository
@@ -255,6 +255,7 @@ export class SantaBot {
 async function main() {
   globals.set("cacheEnabled", true);
   globals.set("postTweet", true);
+  globals.set("storeReplies", true);
 
   // Start web server
   startWebServer();
