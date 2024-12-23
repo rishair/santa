@@ -5,6 +5,10 @@ export interface Repository<Input, Ctx, Output> {
   read(input: Input, context?: Ctx): Promise<Output | null>;
 }
 
+export interface Store<Input, Output> {
+  store(input: Input, value: Output): Promise<void>;
+}
+
 // repository with no arguments or context
 export interface NoArgRepository<Output>
   extends Repository<void, void, Output> {

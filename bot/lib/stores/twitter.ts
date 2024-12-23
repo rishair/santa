@@ -11,7 +11,7 @@ import TwitterApi, {
   TweetV2UserTimelineParams,
   UserV2,
 } from "twitter-api-v2";
-import { Repository } from "./repo";
+import { Repository, Store } from "./repo";
 import { anthropicSonnet } from "../clients/anthropic";
 import { generateText } from "ai";
 
@@ -495,6 +495,17 @@ function convertTweetWithContext(
   }
 
   return tweetContext;
+}
+
+export class TwitterTweetLikeStore implements Store<string, boolean> {
+  public constructor(
+    private readonly twitterClient: TwitterApi,
+    private readonly userId: string
+  ) {}
+
+  public async store(tweetId: string): Promise<void> {
+    await this.twitterClient.v2.like(this.userId, tweetId);
+  }
 }
 
 // Update the conversion functions to pass media map

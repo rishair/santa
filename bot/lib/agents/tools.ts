@@ -5,7 +5,7 @@ import {
   CoinPriceRepository,
 } from "../stores/coinmarketcap";
 import { ConversationNaughtyOrNiceAgent } from "./analyzeProfile";
-import { TweetWithContext } from "../stores/twitter";
+import { TweetWithContext, TwitterTweetLikeStore } from "../stores/twitter";
 import { EditorAgent } from "./editorAgent";
 import { TweetV2PostTweetResult, TwitterApi } from "twitter-api-v2";
 import { globals } from "../util/globals";
@@ -157,6 +157,23 @@ export function createGetInteractionHistoryTool(
             "</conversation>"
         )
         .join("\n");
+    },
+  });
+}
+
+const likeTweetParams = z.object({
+  tweetId: z.string().describe("ID of the tweet to like"),
+});
+
+export function createLikeTweetTool(
+  tweetLikeStore: TwitterTweetLikeStore
+): CoreTool {
+  return tool<typeof likeTweetParams, string>({
+    description: "Likes a tweet",
+    parameters: likeTweetParams,
+    execute: async (input) => {
+      await tweetLikeStore.store(input.tweetId);
+      return "Tweet liked";
     },
   });
 }

@@ -5,13 +5,18 @@ import { generateText } from "ai";
 import { langfuse } from "../clients/langfuse";
 import { ConversationNaughtyOrNiceAgent } from "./analyzeProfile";
 import { ConversationThreadFinderRepository } from "../stores/twitterConversation";
-import { Tweet, TweetWithContext } from "../stores/twitter";
+import {
+  Tweet,
+  TweetWithContext,
+  TwitterTweetLikeStore,
+} from "../stores/twitter";
 import { EditorAgent } from "./editorAgent";
 import { printTweet, printTweets } from "../util/tweets";
 import { globals } from "../util/globals";
 import {
   createCoinDetailsTool,
   createGetInteractionHistoryTool,
+  createLikeTweetTool,
   createNaughtyOrNiceTool,
   createPostTweetTool,
   createSendTweetToEditorTool,
@@ -30,7 +35,8 @@ export class ReplyAgent {
     private readonly editorAgent: EditorAgent,
     private readonly coinDetailsRepository: CoinDetailsRepository,
     private readonly coinPriceRepository: CoinPriceRepository,
-    private readonly userRepliesRepository: UserRepliesRepository
+    private readonly userRepliesRepository: UserRepliesRepository,
+    private readonly tweetLikeStore: TwitterTweetLikeStore
   ) {
     this.replyDetails = new YamlReader("prompts/reply.yaml");
   }
@@ -66,7 +72,10 @@ export class ReplyAgent {
 
     console.log("Getting prompt messages...");
     const processedMessages = this.replyDetails.getPrompt("prompt", {
-      user_tweet: printTweet(tweet, { includeReplyTo: false }),
+      user_tweet: printTweet(tweet, {
+        includeReplyTo: false,
+        includeTweetId: true,
+      }),
       previous_interactions:
         prevInteractions.length > 0
           ? prevInteractions
@@ -115,6 +124,7 @@ export class ReplyAgent {
         getInteractionHistory: createGetInteractionHistoryTool(
           this.userRepliesRepository
         ),
+        likeTweet: createLikeTweetTool(this.tweetLikeStore),
       },
       onStepFinish: ({ toolResults }) => {
         toolResults.forEach((toolResult: { toolName: string; result: any }) => {

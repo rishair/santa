@@ -13,6 +13,7 @@ import {
   TweetMediaHydrator,
   TweetSearchRepository,
   TweetWithContext,
+  TwitterTweetLikeStore,
   TwitterTweetRepository,
   TwitterUserByScreenNameRepository,
   TwitterUserMentionsRepository,
@@ -135,21 +136,6 @@ const coinPriceRepository = withErrorHandling(new CoinPriceRepository());
 
 const userRepliesRepository = new UserRepliesRepository(santaDb);
 const tweetFinder = new TweetFinder(tweetSearchRepository);
-
-const replyAgent = new ReplyAgent(
-  twitterClient,
-  conversationThreadFinderRepository,
-  new ConversationNaughtyOrNiceAgent(
-    userProfileRepository,
-    conversationUserRepliesRepository,
-    coinDetailsRepository,
-    coinPriceRepository
-  ),
-  new EditorAgent(userRepliesRepository),
-  coinDetailsRepository,
-  coinPriceRepository,
-  userRepliesRepository
-);
 
 const tweetQueueRepository = new MongoQueue<string>(
   santaDb,
@@ -304,6 +290,25 @@ async function main() {
 
   // Start bot
   const user = await userByScreenNameRepository.read("robosantahoho");
+
+  const tweetLikeStore = new TwitterTweetLikeStore(twitterClient, user.id);
+
+  const replyAgent = new ReplyAgent(
+    twitterClient,
+    conversationThreadFinderRepository,
+    new ConversationNaughtyOrNiceAgent(
+      userProfileRepository,
+      conversationUserRepliesRepository,
+      coinDetailsRepository,
+      coinPriceRepository
+    ),
+    new EditorAgent(userRepliesRepository),
+    coinDetailsRepository,
+    coinPriceRepository,
+    userRepliesRepository,
+    tweetLikeStore
+  );
+
   const bot = new SantaBot(
     user,
     userMentionsRepository,
