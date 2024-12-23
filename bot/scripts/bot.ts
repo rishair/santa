@@ -310,7 +310,7 @@ async function main() {
     tweetFinder
   );
 
-  await bot.searchForReplies();
+  // await bot.searchForReplies();
 
   await bot.start();
 }
