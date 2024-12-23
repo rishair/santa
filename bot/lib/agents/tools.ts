@@ -9,6 +9,8 @@ import { TweetWithContext } from "../stores/twitter";
 import { EditorAgent } from "./editorAgent";
 import { TweetV2PostTweetResult, TwitterApi } from "twitter-api-v2";
 import { globals } from "../util/globals";
+import { UserRepliesRepository } from "../stores/user";
+import { printTweets } from "../util/tweets";
 
 const coinDetailsParams = z.object({
   symbol: z.string().describe("Coin symbol to get details about"),
@@ -129,4 +131,29 @@ export function createPostTweetTool(
       };
     },
   });
+}
+
+const getInteractionHistoryParams = z.object({
+  username: z
+    .string()
+    .describe("Username of the user to get interaction history with"),
+});
+
+export function createGetInteractionHistoryTool(
+  userRepliesRepository: UserRepliesRepository
+): CoreTool {
+  return tool<typeof getInteractionHistoryParams, string>({
+    description: "Gets all tweet interactions with a user",
+    parameters: getInteractionHistoryParams,
+    execute: async (input) => {
+      const prevInteractions = await userRepliesRepository.findByUsernames([
+        input.username,
+      ]);
+      return prevInteractions
+        .map((r) => "<conversation>" + printTweets(r.replyBranchThread) + "</conversation>")
+        .join("\n");
+    },
+  });
+}
+
 }

@@ -10,6 +10,7 @@ import { EditorAgent } from "./editorAgent";
 import { printTweet, printTweets } from "../util/tweets";
 import {
   createCoinDetailsTool,
+  createGetInteractionHistoryTool,
   createNaughtyOrNiceTool,
   createPostTweetTool,
   createSendTweetToEditorTool,
@@ -110,6 +111,9 @@ export class ReplyAgent {
           traceId
         ),
         postTweet: createPostTweetTool(this.twitterClient, tweet),
+        getInteractionHistory: createGetInteractionHistoryTool(
+          this.userRepliesRepository
+        ),
       },
       onStepFinish: ({ toolResults }) => {
         toolResults.forEach((toolResult: { toolName: string; result: any }) => {
