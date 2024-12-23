@@ -33,7 +33,7 @@ export class EditorAgent {
     const messages: CoreMessage[] = this.editorDetails.getPrompt("prompt", {
       tweet_text: tweet,
       replying_to: JSON.stringify(replyingTo),
-      latest_tweets: JSON.stringify(latestTweets),
+      latest_replies: JSON.stringify(latestTweets),
     });
 
     const result = await generateText({
