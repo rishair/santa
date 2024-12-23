@@ -256,7 +256,9 @@ export class SantaBot {
       .map((username) => `from:${username}`)
       .join(" OR ");
 
-    const tweets = await tweetFinder.findInterestingTweets(fromList, traceId);
+    const tweets = await tweetFinder.findInterestingTweets(fromList, traceId, {
+      max_results: 10,
+    });
 
     tweets.forEach((t) => {
       console.log(

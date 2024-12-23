@@ -38,7 +38,7 @@ export class NaughtyOrNiceAgent {
     });
 
     const tweets = await this.userTweetsRepository.read(username, {
-      maxResults: 50,
+      maxResults: 20,
     });
 
     // Get user profile info
