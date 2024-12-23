@@ -6,6 +6,7 @@ import { ReplyAgent } from "../lib/agents/replyAgent";
 import { CachingRepository, withErrorHandling } from "../lib/stores/repo";
 import { EditorAgent } from "../lib/agents/editorAgent";
 import {
+  ITweetSearchRepository,
   ITwitterUserMentionsRepository,
   MediaHydratingTweetRepository,
   SingleMediaHydratingTweetRepository,
@@ -31,6 +32,8 @@ import { UserRepliesRepository } from "../lib/stores/user";
 import { UserV2 } from "twitter-api-v2";
 import { MongoQueue } from "../lib/stores/queue";
 import { startWebServer } from "./webServer";
+import { YamlReader } from "../lib/util/yaml";
+import { TweetFinder } from "../lib/agents/tweetFinder";
 
 sdk.start();
 
@@ -105,12 +108,14 @@ const singleTweetRepository = new CachingRepository(
   { cacheKeyFn: (tweetId) => "singleTweet:" + tweetId }
 );
 
-const tweetSearchRepository = new CachingRepository(
-  new MediaHydratingTweetRepository(
-    new TweetSearchRepository(twitterClient),
-    tweetMediaHydrator,
-    true
-  ),
+const tweetSearchRepository = new MediaHydratingTweetRepository(
+  new TweetSearchRepository(twitterClient),
+  tweetMediaHydrator,
+  true
+);
+
+const cachedTweetSearchRepository = new CachingRepository(
+  tweetSearchRepository,
   santaDb,
   { cacheKeyFn: (query) => "tweetSearch:" + query }
 );
@@ -118,17 +123,18 @@ const tweetSearchRepository = new CachingRepository(
 const conversationThreadFinderRepository =
   new ConversationThreadFinderRepository(
     singleTweetRepository,
-    tweetSearchRepository
+    cachedTweetSearchRepository
   );
 
 const conversationUserRepliesRepository = new ConversationUserRepliesRepository(
-  tweetSearchRepository
+  cachedTweetSearchRepository
 );
 
 const coinDetailsRepository = withErrorHandling(new CoinDetailsRepository());
 const coinPriceRepository = withErrorHandling(new CoinPriceRepository());
 
 const userRepliesRepository = new UserRepliesRepository(santaDb);
+const tweetFinder = new TweetFinder(tweetSearchRepository);
 
 const replyAgent = new ReplyAgent(
   twitterClient,
@@ -158,7 +164,8 @@ export class SantaBot {
     private readonly user: UserV2,
     private readonly userMentionsRepository: ITwitterUserMentionsRepository,
     private readonly replyAgent: ReplyAgent,
-    private readonly tweetQueueRepository: MongoQueue<string>
+    private readonly tweetQueueRepository: MongoQueue<string>,
+    private readonly tweetFinder: TweetFinder
   ) {}
 
   public async start() {
@@ -190,15 +197,9 @@ export class SantaBot {
       }
     }
   }
-
-  private async processTweetQueue(attemptsLeft: number = 2) {
-    const tweetId = await this.tweetQueueRepository.dequeue();
-    if (!tweetId) {
-      return;
-    }
-
+  async processTweet(tweetId: string) {
     try {
-      const tweet = await singleTweetRepository.read(tweetId.value);
+      const tweet = await singleTweetRepository.read(tweetId);
       const result = await this.replyAgent.generateReply(this.user, tweet);
       if (!result.newReply) {
         console.log("🎄 Already replied to tweet:", tweetId);
@@ -212,16 +213,28 @@ export class SantaBot {
       if (error?.name === "ApiResponseError" && error?.code === 429) {
         console.error("🎄 Rate limit hit, will retry later:", error.message);
         // Re-queue the tweet to try again later
-        await this.tweetQueueRepository.enqueue(tweetId.value);
+        await this.tweetQueueRepository.enqueue(tweetId);
+        throw error; // Rethrow to trigger retry
       } else {
         // For permanent errors, store them so we don't retry
         console.error("🎄 Error processing tweet:", tweetId, error);
         await userRepliesRepository.updateError(
-          tweetId.value,
+          tweetId,
           error.message || error.toString()
         );
       }
+    }
+  }
 
+  private async processTweetQueue(attemptsLeft: number = 2) {
+    const tweetId = await this.tweetQueueRepository.dequeue();
+    if (!tweetId) {
+      return;
+    }
+
+    try {
+      await this.processTweet(tweetId.value);
+    } catch (error) {
       // Try processing the next tweet if we have attempts left
       if (attemptsLeft > 1) {
         console.log(
@@ -234,11 +247,37 @@ export class SantaBot {
     }
   }
 
+  public async searchForReplies() {
+    const yaml = new YamlReader("config/follow.yaml");
+    const cryptoUsernames = yaml.get("crypto") as string[];
+    const traceId = crypto.randomUUID();
+
+    const fromList = cryptoUsernames
+      .map((username) => `from:${username}`)
+      .join(" OR ");
+
+    const tweets = await tweetFinder.findInterestingTweets(fromList, traceId);
+
+    tweets.forEach((t) => {
+      console.log(
+        `🎄 Adding searched tweet to queue:
+           ID: ${t.tweet.id}
+           Text: ${t.tweet.text}
+           Reason: ${t.reason}`
+      );
+      this.tweetQueueRepository.enqueue(t.tweet.id);
+    });
+  }
+
   private async runLoop() {
     while (this.isRunning) {
       const currentMinute = new Date().getMinutes();
       try {
-        if (currentMinute % 5 === 0) {
+        if (currentMinute % 30 === 0) {
+          console.log("🎄 Searching for replies");
+          await this.searchForReplies();
+        }
+        if (currentMinute % 4 === 0) {
           console.log("🎄 Checking mentions");
           await this.checkMentions();
         }
@@ -256,6 +295,7 @@ async function main() {
   globals.set("cacheEnabled", true);
   globals.set("postTweet", true);
   globals.set("storeReplies", true);
+  globals.set("skipRead", true);
 
   // Start web server
   startWebServer();
@@ -266,8 +306,11 @@ async function main() {
     user,
     userMentionsRepository,
     replyAgent,
-    tweetQueueRepository
+    tweetQueueRepository,
+    tweetFinder
   );
+
+  await bot.searchForReplies();
 
   await bot.start();
 }

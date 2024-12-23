@@ -8,6 +8,7 @@ import { ConversationThreadFinderRepository } from "../stores/twitterConversatio
 import { Tweet, TweetWithContext } from "../stores/twitter";
 import { EditorAgent } from "./editorAgent";
 import { printTweet, printTweets } from "../util/tweets";
+import { globals } from "../util/globals";
 import {
   createCoinDetailsTool,
   createGetInteractionHistoryTool,
@@ -49,7 +50,7 @@ export class ReplyAgent {
     });
 
     const prevReply = await this.userRepliesRepository.read(tweet.id);
-    if (prevReply) {
+    if (prevReply && globals.get("skipRead")) {
       return {
         text: prevReply.replyTweet.text,
         tweetId: prevReply.replyTweet.id,
@@ -65,25 +66,25 @@ export class ReplyAgent {
 
     console.log("Getting prompt messages...");
     const processedMessages = this.replyDetails.getPrompt("prompt", {
-      user_tweet: printTweet(tweet, false),
+      user_tweet: printTweet(tweet, { includeReplyTo: false }),
       previous_interactions:
         prevInteractions.length > 0
           ? prevInteractions
               .slice(0, 4)
               .map(
                 (r) =>
-                  `<conversation>${printTweets(
-                    r.replyBranchThread,
-                    false
-                  )}</conversation>`
+                  `<conversation>${printTweets(r.replyBranchThread, {
+                    includeReplyTo: false,
+                  })}</conversation>`
               )
               .join("\n")
           : "None",
-      conversation_root_thread: printTweets(
-        threads.conversationRootThread,
-        false
-      ),
-      reply_branch_thread: printTweets(threads.replyBranchThread, false),
+      conversation_root_thread: printTweets(threads.conversationRootThread, {
+        includeReplyTo: false,
+      }),
+      reply_branch_thread: printTweets(threads.replyBranchThread, {
+        includeReplyTo: false,
+      }),
     });
 
     let postTweetResult:

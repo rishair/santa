@@ -7,6 +7,7 @@ interface GlobalConfig {
   postTweet: boolean;
   santaUsername: string;
   storeReplies: boolean;
+  skipRead: boolean;
 }
 
 class GlobalConfiguration {
@@ -19,6 +20,7 @@ class GlobalConfiguration {
       cacheEnabled: true,
       postTweet: true,
       storeReplies: true,
+      skipRead: true,
       santaUsername: process.env.TWITTER_SANTA_USERNAME || "",
     };
   }

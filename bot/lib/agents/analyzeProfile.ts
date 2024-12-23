@@ -95,23 +95,19 @@ export class ConversationNaughtyOrNiceAgent {
     let tweetString = "";
 
     tweetString += `<replyBranchThread>${printTweets(
-      replyBranchThread,
-      false
+      replyBranchThread
     )}</replyBranchThread>`;
 
     tweetString += `<conversationRootThread>${printTweets(
-      conversationRootThread,
-      false
+      conversationRootThread
     )}</conversationRootThread>`;
 
     tweetString += `<repliesToOthers>${printTweets(
-      tweets.repliesToOthers,
-      true
+      tweets.repliesToOthers
     )}</repliesToOthers>`;
 
     tweetString += `<repliesFromOthers>${printTweets(
-      tweets.repliesFromOthers,
-      false
+      tweets.repliesFromOthers
     )}</repliesFromOthers>`;
 
     const messages = this.analyzePrompt.getPrompt("prompt", {
