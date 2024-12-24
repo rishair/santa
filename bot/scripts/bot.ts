@@ -261,7 +261,7 @@ export class SantaBot {
     while (this.isRunning) {
       const currentMinute = new Date().getMinutes();
       try {
-        if (currentMinute % 35 === 0) {
+        if (currentMinute % 50 === 0) {
           console.log("🎄 Searching for replies");
           await this.searchForReplies();
         }
