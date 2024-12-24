@@ -322,4 +322,6 @@ async function main() {
   await bot.start();
 }
 
-main();
+if (require.main === module) {
+  main();
+}

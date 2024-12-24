@@ -10,7 +10,7 @@ export class EditorAgent {
   private editorDetails: YamlReader;
 
   constructor(private userRepliesRepository: UserRepliesRepository) {
-    this.editorDetails = new YamlReader("prompts/editor.yaml");
+    this.editorDetails = new YamlReader("prompts/reply_editor.yaml");
   }
 
   public async editTweet(
